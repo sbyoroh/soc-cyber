@@ -1,6 +1,9 @@
+
+
 import streamlit as st
 from pymongo import MongoClient
 import pandas as pd
+import requests
 import time
 
 # إعداد صفحة لوحة التحكم
@@ -18,18 +21,40 @@ try:
 except Exception as e:
     st.error(f"Database connection failed: {e}")
 
-# العنوان الرئيسي ووصف النظام
+# العنوان ووصف النظام
 st.title("🛡️ AI-Powered SOC & MDR Operations Center")
 st.markdown("Real-time network traffic monitoring, threat detection via **XGBoost AI**, and automated **Windows Firewall IPS** response.")
 
-# لوحة التحكم الجانبية
+# الشريط الجانبي لإدارة النظام والـ Whitelist
 st.sidebar.header("⚙️ Control Panel")
 auto_refresh = st.sidebar.checkbox("Enable Live Auto-Refresh", value=True)
 
-# تخطيط الإحصائيات العلوية
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔒 Whitelist Management")
+new_whitelisted_ip = st.sidebar.text_input("Add IP to Whitelist")
+if st.sidebar.button("Add IP"):
+    if new_whitelisted_ip:
+        try:
+            res = requests.post("http://127.0.0.1:8000/whitelist/add", json={"ip_address": new_whitelisted_ip})
+            if res.status_code == 200:
+                st.sidebar.success(f"IP {new_whitelisted_ip} whitelisted!")
+            else:
+                st.sidebar.error("Failed to add IP.")
+        except Exception as ex:
+            st.sidebar.error(f"Connection error: {ex}")
+
+# عرض القائمة البيضاء الحالية
+try:
+    wl_res = requests.get("http://127.0.0.1:8000/whitelist/list").json()
+    st.sidebar.text("Active Whitelisted IPs:")
+    st.sidebar.write(wl_res.get("whitelist", []))
+except:
+    pass
+
+# التخطيط والإحصائيات الرئيسية
 metric_col1, metric_col2, metric_col3 = st.columns(3)
 
-# جلب التنبيهات من قاعدة البيانات
+# جلب البيانات من MongoDB
 try:
     alerts_cursor = collection.find().sort("_id", -1).limit(50)
     alerts_list = list(alerts_cursor)
@@ -37,7 +62,7 @@ try:
 except Exception:
     df = pd.DataFrame()
 
-# حساب الإحصائيات والمؤشرات
+# حساب المؤشرات
 total_threats = len(df) if not df.empty else 0
 unique_attackers = df["ip_address"].nunique() if not df.empty and "ip_address" in df.columns else 0
 
@@ -54,30 +79,22 @@ st.markdown("---")
 st.subheader("🔴 Live Security Incidents & Firewall Actions")
 
 if not df.empty:
-    # تنسيق معرف قاعدة البيانات للعرض
     if "_id" in df.columns:
         df["_id"] = df["_id"].astype(str)
     
-    # اختيار الأعمدة المتاحة للعرض
     display_columns = [col for col in ["timestamp", "ip_address", "threat_type", "action_taken"] if col in df.columns]
-    
-    # عرض الجدول التفاعلي
     st.dataframe(df[display_columns], width='stretch')
 else:
     st.info("ℹ️ No threats detected yet. The network is secure and monitored by AI.")
 
-# قسم الرسوم البيانية والإحصائيات
+# قسم الرسوم البيانية
 if not df.empty and "threat_type" in df.columns:
     st.markdown("---")
     st.subheader("📊 Threat Statistics & Classification")
     threat_counts = df["threat_type"].value_counts()
     st.bar_chart(threat_counts)
 
-# معلومات الشريط الجانبي
-st.sidebar.markdown("---")
-st.sidebar.info("System running with FastAPI, Scapy, XGBoost, and MongoDB.")
-
-# حلقة التحديث التلقائي للداشبورد كل 3 ثواني
+# حلقة التحديث التلقائي للداشبورد
 if auto_refresh:
     time.sleep(3)
     st.rerun()
